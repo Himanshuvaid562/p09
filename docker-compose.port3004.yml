@@ -1,0 +1,19 @@
+services:
+  web:
+    build: .
+    ports:
+      - "3004:3000"
+    environment:
+      # Required: copy .env.example to .env and fill these in
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB=${MONGODB_DB:-heard_in_class}
+      - AUTH_SECRET=${AUTH_SECRET}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - ALLOW_STUDENT_SIGNUP=${ALLOW_STUDENT_SIGNUP:-true}
+      - FACULTY_INVITE_CODE=${FACULTY_INVITE_CODE}
+      # Optional: Ollama running on the host machine (meaning-based matching)
+      - EMBED_URL=${EMBED_URL:-http://host.docker.internal:11434}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # lets the container reach the host on Linux
+    restart: unless-stopped

@@ -1,22 +1,37 @@
 import { NextResponse } from "next/server";
-import { getQueries, saveQueries } from "@/lib/db";
+import { getQuery, updateQuery } from "@/lib/db";
+import { getUser, checkRole } from "@/lib/auth";
 
-// PATCH /api/queries/:id  -> faculty answers or schedules an office-hour slot
+// PATCH -> only the assigned faculty can answer or schedule
 export async function PATCH(req, { params }) {
-  const body = await req.json();
-  const list = getQueries();
-  const q = list.find((item) => item.id === params.id);
+  const user = await getUser();
+  const denied = checkRole(user, "faculty");
+  if (denied) return denied;
+
+  const body = await req.json().catch(() => ({}));
+  const answer = typeof body.answer === "string" ? body.answer.trim() : "";
+  const appointment = typeof body.appointment === "string" ? body.appointment.trim() : "";
+
+  const q = await getQuery(params.id);
   if (!q) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  if (body.answer) {
-    q.answer = body.answer;
-    q.status = "Answered";
-  }
-  if (body.appointment) {
-    q.appointment = body.appointment;
-    if (!q.answer) q.status = "Scheduled";
+  if (q.assignedTo !== user.name) {
+    return NextResponse.json({ error: "This query is not assigned to you" }, { status: 403 });
   }
 
-  saveQueries(list);
-  return NextResponse.json(q);
+  const patch = {};
+  if (answer) {
+    patch.answer = answer;
+    patch.status = "Answered";
+  }
+  if (appointment) {
+    patch.appointment = appointment;
+    if (!answer && !q.answer) patch.status = "Scheduled";
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  }
+
+  const updated = await updateQuery(params.id, patch);
+  return NextResponse.json(updated);
 }
