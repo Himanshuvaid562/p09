@@ -10,5 +10,5 @@ export default async function FacultyPage() {
   if (!user) redirect("/login");                    // not logged in
   if (user.role !== "faculty") redirect("/student"); // wrong role
 
-  return <FacultyView user={{ name: user.name }} />;
+  return <FacultyView user={{ name: user.name, regNo: user.regNo || null }} />;
 }

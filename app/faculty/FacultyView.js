@@ -75,7 +75,10 @@ export default function FacultyView({ user }) {
   return (
     <div>
       <h1 className="page-title">Welcome, {user.name}</h1>
-      <p className="page-sub">Answer queries, or bring students with the same doubt into one Google Meet.</p>
+      <p className="page-sub">
+        {user.regNo ? "Reg. no. " + user.regNo + " · " : ""}
+        Answer queries, or bring students with the same doubt into one Google Meet.
+      </p>
       {matching && (
         <p className="muted" style={{ marginTop: -12 }}>
           Similar doubts are matched by {matching === "meaning" ? "meaning (AI)" : "keywords only"}.

@@ -7,5 +7,10 @@ export async function GET() {
   const user = await getUser();
   const denied = checkRole(user);
   if (denied) return denied;
-  return NextResponse.json({ name: user.name, role: user.role, roll: user.roll });
+  return NextResponse.json({
+    name: user.name,
+    role: user.role,
+    roll: user.roll,
+    regNo: user.regNo || null,
+  });
 }

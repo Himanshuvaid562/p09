@@ -1,19 +1,28 @@
 "use client";
 import { useState } from "react";
 
-export default function SignupForm({ courses, faculty, studentEnabled, facultyEnabled }) {
+export default function SignupForm({ courses, studentEnabled, facultyEnabled }) {
   const bothEnabled = studentEnabled && facultyEnabled;
   const [role, setRole] = useState(studentEnabled ? "student" : "faculty");
-  const [student, setStudent] = useState({ name: "", roll: "", courses: [] });
+  const [student, setStudent] = useState({ name: "", roll: "" });
+  // the student's courses: a title (e.g. PHY) and a code (e.g. 101)
+  const [studentNewCourses, setStudentNewCourses] = useState([{ title: "", code: "" }]);
   const [facultyForm, setFacultyForm] = useState({
-    name: faculty[0]?.name || "",
+    name: "",
+    regNo: "",
     username: "",
     inviteCode: "",
   });
+  // courses that already exist and have no faculty account yet
+  const [existingCourses, setExistingCourses] = useState([]);
+  // new custom courses: a title (e.g. INT) and a code (e.g. 305)
+  const [newCourses, setNewCourses] = useState([{ title: "", code: "" }]);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const claimableCourses = courses.filter((course) => course.claimable);
 
   function switchRole(next) {
     setRole(next);
@@ -28,13 +37,44 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
     setFacultyForm({ ...facultyForm, [e.target.name]: e.target.value });
   }
 
-  function toggleCourse(course) {
-    setStudent({
-      ...student,
-      courses: student.courses.includes(course)
-        ? student.courses.filter((c) => c !== course)
-        : [...student.courses, course],
-    });
+  function changeStudentNewCourse(index, field, value) {
+    setStudentNewCourses(
+      studentNewCourses.map((course, i) =>
+        i === index ? { ...course, [field]: value } : course
+      )
+    );
+  }
+
+  function addStudentNewCourse() {
+    setStudentNewCourses([...studentNewCourses, { title: "", code: "" }]);
+  }
+
+  function removeStudentNewCourse(index) {
+    setStudentNewCourses(studentNewCourses.filter((_, i) => i !== index));
+  }
+
+  function toggleExistingCourse(course) {
+    setExistingCourses(
+      existingCourses.includes(course)
+        ? existingCourses.filter((c) => c !== course)
+        : [...existingCourses, course]
+    );
+  }
+
+  function changeNewCourse(index, field, value) {
+    setNewCourses(
+      newCourses.map((course, i) =>
+        i === index ? { ...course, [field]: value } : course
+      )
+    );
+  }
+
+  function addNewCourse() {
+    setNewCourses([...newCourses, { title: "", code: "" }]);
+  }
+
+  function removeNewCourse(index) {
+    setNewCourses(newCourses.filter((_, i) => i !== index));
   }
 
   async function submit(e) {
@@ -45,12 +85,16 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
       setError("Please enter your full name.");
       return;
     }
-    if (role === "faculty" && !facultyForm.name) {
-      setError("Choose your faculty name.");
+    if (role === "faculty" && facultyForm.name.trim().length < 2) {
+      setError("Please enter your full name.");
       return;
     }
     if (role === "student" && !student.roll.trim()) {
       setError("Please enter your roll number.");
+      return;
+    }
+    if (role === "faculty" && !facultyForm.regNo.trim()) {
+      setError("Please enter your registration number.");
       return;
     }
     if (role === "faculty" && !facultyForm.username.trim()) {
@@ -65,10 +109,54 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
       setError("The two passwords do not match.");
       return;
     }
-    if (role === "student" && student.courses.length === 0) {
-      setError("Select at least one course.");
-      return;
+    const studentCustom = studentNewCourses
+      .map((course) => ({
+        title: course.title.trim(),
+        code: course.code.trim(),
+      }))
+      .filter((course) => course.title || course.code);
+
+    if (role === "student") {
+      if (studentCustom.length === 0) {
+        setError("Add at least one course.");
+        return;
+      }
+      for (const course of studentCustom) {
+        if (!course.title) {
+          setError("Enter a course title.");
+          return;
+        }
+        if (!course.code) {
+          setError("Enter a course code for " + course.title + ".");
+          return;
+        }
+      }
     }
+
+    const customCourses = newCourses
+      .map((course) => ({
+        title: course.title.trim(),
+        code: course.code.trim(),
+      }))
+      .filter((course) => course.title || course.code);
+
+    if (role === "faculty") {
+      if (existingCourses.length === 0 && customCourses.length === 0) {
+        setError("Add at least one course you teach.");
+        return;
+      }
+      for (const course of customCourses) {
+        if (!course.title) {
+          setError("Enter a course title.");
+          return;
+        }
+        if (!course.code) {
+          setError("Enter a course code for " + course.title + ".");
+          return;
+        }
+      }
+    }
+
     if (role === "faculty" && !facultyForm.inviteCode.trim()) {
       setError("Enter the faculty invite code.");
       return;
@@ -79,8 +167,13 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
         ? {
             role: "faculty",
             name: facultyForm.name,
+            regNo: facultyForm.regNo,
             username: facultyForm.username,
             password,
+            courses: [
+              ...existingCourses.map((key) => ({ title: key, code: "" })),
+              ...customCourses,
+            ],
             inviteCode: facultyForm.inviteCode,
           }
         : {
@@ -88,7 +181,7 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
             name: student.name,
             roll: student.roll,
             password,
-            courses: student.courses,
+            courses: studentCustom,
           };
 
     setBusy(true);
@@ -132,7 +225,7 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
       <h1 className="page-title" style={{ textAlign: "center" }}>Create your account</h1>
       <p className="page-sub" style={{ textAlign: "center" }}>
         {role === "faculty"
-          ? "Faculty registration requires the invite code from the administrator."
+          ? "Enter your name, registration number and the courses you teach. Faculty registration requires the invite code from the administrator."
           : "Students can register with their roll number and courses."}
       </p>
 
@@ -176,23 +269,68 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
                 value={student.roll}
                 onChange={changeStudent}
               />
+
+              <label>Your courses</label>
+              <p className="muted" style={{ margin: "-6px 0 6px" }}>
+                Add each course with its title and code:
+              </p>
+              {studentNewCourses.map((course, index) => (
+                <div className="row" key={index}>
+                  <div>
+                    <label>Course title</label>
+                    <input
+                      placeholder="e.g. PHY"
+                      value={course.title}
+                      onChange={(e) => changeStudentNewCourse(index, "title", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label>Course code</label>
+                    <input
+                      placeholder="e.g. 101"
+                      value={course.code}
+                      onChange={(e) => changeStudentNewCourse(index, "code", e.target.value)}
+                    />
+                  </div>
+                  {studentNewCourses.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      onClick={() => removeStudentNewCourse(index)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button type="button" className="btn btn-small" onClick={addStudentNewCourse}>
+                + Add another course
+              </button>
+              <p className="muted" style={{ marginTop: 6 }}>
+                You will only see doubts and submit questions for these courses.
+              </p>
             </>
           ) : (
             <>
-              <label>Faculty name</label>
-              <select
+              <label>Full name</label>
+              <input
                 name="name"
+                placeholder="e.g. Dr. Meera Joshi"
+                autoComplete="name"
                 value={facultyForm.name}
                 onChange={changeFaculty}
-              >
-                {faculty.map((person) => (
-                  <option key={person.name} value={person.name}>
-                    {person.name} — {person.courses.join(", ")}
-                  </option>
-                ))}
-              </select>
+              />
 
-              <label>Username</label>
+              <label>Registration / employee number</label>
+              <input
+                name="regNo"
+                placeholder="e.g. FAC-1024"
+                autoComplete="off"
+                value={facultyForm.regNo}
+                onChange={changeFaculty}
+              />
+
+              <label>Username (for login)</label>
               <input
                 name="username"
                 placeholder="Choose a username"
@@ -200,6 +338,66 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
                 value={facultyForm.username}
                 onChange={changeFaculty}
               />
+
+              <label>Courses you teach</label>
+              {claimableCourses.length > 0 && (
+                <>
+                  <p className="muted" style={{ margin: "-6px 0 6px" }}>
+                    Existing courses without a faculty member:
+                  </p>
+                  <div className="course-grid">
+                    {claimableCourses.map((course) => (
+                      <label className="check" key={course.key}>
+                        <input
+                          type="checkbox"
+                          checked={existingCourses.includes(course.key)}
+                          onChange={() => toggleExistingCourse(course.key)}
+                        />
+                        {course.key}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <p className="muted" style={{ margin: "4px 0 6px" }}>
+                Add a new course with its title and code:
+              </p>
+              {newCourses.map((course, index) => (
+                <div className="row" key={index}>
+                  <div>
+                    <label>Course title</label>
+                    <input
+                      placeholder="e.g. INT"
+                      value={course.title}
+                      onChange={(e) => changeNewCourse(index, "title", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label>Course code</label>
+                    <input
+                      placeholder="e.g. 305"
+                      value={course.code}
+                      onChange={(e) => changeNewCourse(index, "code", e.target.value)}
+                    />
+                  </div>
+                  {newCourses.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      onClick={() => removeNewCourse(index)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button type="button" className="btn btn-small" onClick={addNewCourse}>
+                + Add another course
+              </button>
+              <p className="muted" style={{ marginTop: 6 }}>
+                Student queries for these courses will be sent to you.
+              </p>
 
               <label>Faculty invite code</label>
               <input
@@ -235,27 +433,6 @@ export default function SignupForm({ courses, faculty, studentEnabled, facultyEn
               />
             </div>
           </div>
-
-          {role === "student" && (
-            <>
-              <label>Your courses</label>
-              <div className="course-grid">
-                {courses.map((course) => (
-                  <label className="check" key={course}>
-                    <input
-                      type="checkbox"
-                      checked={student.courses.includes(course)}
-                      onChange={() => toggleCourse(course)}
-                    />
-                    {course}
-                  </label>
-                ))}
-              </div>
-              <p className="muted" style={{ marginTop: -4 }}>
-                You will only see doubts and submit questions for the courses you select.
-              </p>
-            </>
-          )}
 
           {error && <div className="error">{error}</div>}
 

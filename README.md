@@ -133,7 +133,14 @@ courses they are enrolled in. The account is created immediately and the student
 is logged in.
 
 - A roll number can only be registered once.
-- Students can only select courses that exist in `courseFaculty` (`lib/triage.js`).
+- Students enter their courses with the same **Course title** and **Course code**
+  fields faculty use, for example `PHY` + `101`. Use **+ Add another course** for
+  more courses, so each student can have a different set.
+- A course entered by a student is saved in the `courses` collection and appears
+  for other students too. It does not need a faculty account.
+- A student-added course with no faculty account yet is shown as `Unassigned`.
+  When a faculty member later claims that course, its unassigned queries are
+  automatically reassigned to them.
 - Passwords must be at least 8 characters and are hashed with scrypt before storage.
 - Set `ALLOW_STUDENT_SIGNUP=false` to close public signup (the page then shows
   “Signup is closed” and the API refuses new accounts).
@@ -151,21 +158,38 @@ secret invite code:
    ```
 
 2. Restart the app. The signup page now shows a **Faculty** tab.
-3. Faculty choose their name, a username, a password and enter the invite code.
-   Their name must be one of the names in `courseFaculty` (`lib/triage.js`), so
-   queries are routed to them correctly.
+3. Faculty enter their full name, registration/employee number, a username and
+   password, then add the courses they teach and enter the invite code. Their
+   name does **not** have to exist in `lib/triage.js` — new faculty can be added
+   freely.
+
+Each course has two fields:
+
+- **Course title** — the subject, for example `INT`
+- **Course code** — the number, for example `305`
+
+The two are joined into a course such as `INT 305`. Use **+ Add another course**
+to teach more than one course. Built-in courses that do not yet have a faculty
+account (from `courseFaculty` in `lib/triage.js`) are listed as checkboxes so
+they can still be claimed.
+
+Queries are routed by the courses saved on the faculty account in MongoDB. The
+defaults in `courseFaculty` are only used for a course that no registered
+faculty account has claimed.
 
 Leave `FACULTY_INVITE_CODE` unset to disable faculty self-registration.
 
 An administrator can still create faculty accounts with the script:
 
 ```bash
-# Faculty account (name must match courseFaculty in lib/triage.js)
+# Faculty account: --courses is required, --regno defaults to the username
 npm run users -- add \
   --username sharma \
   --password "a-strong-password" \
   --role faculty \
-  --name "Dr. Sharma"
+  --name "Dr. Sharma" \
+  --regno "FAC-001" \
+  --courses "INT:305,CSE310"
 
 # List accounts (never prints passwords)
 npm run users -- list
@@ -187,13 +211,14 @@ npm run users -- add \
   --role student \
   --name "Asha" \
   --roll 101 \
-  --courses CSE310,CSE326
+  --courses "INT 305,CSE326"
 ```
 
 Important:
 
-- A faculty account's `--name` must **exactly match** a name in `courseFaculty` in `lib/triage.js`, because queries are routed by name.
+- Faculty accounts store a `regNo` and the `courses` they teach as `{ title, code }` entries. Each course can belong to only one registered faculty account, and queries for that course are routed to them.
 - A student only sees and posts to the courses listed on their account.
+- Courses are kept in the `courses` collection. A course created by a student can later be claimed by a faculty member with the same title and code; any queries that were waiting as `Unassigned` move to that faculty member.
 - There is no password-reset page yet. An administrator can reset a password with `npm run users -- add ... --update`.
 - The script reads `MONGODB_URI` / `MONGODB_DB` from your shell or from `.env.local` / `.env`.
 
@@ -283,10 +308,12 @@ All rules are plain keyword checks in `lib/triage.js`. The first matching rule w
 | Concept Doubt | everything else |
 
 - **High priority:** the text contains *urgent, today, tomorrow, asap* or *deadline*.
-- **Routing:** the query goes to the faculty mapped to its course in `courseFaculty`.
+- **Routing:** the query goes to the registered faculty account that teaches the course (by its title + code key, for example `INT 305`). If no account has claimed the course, the default in `courseFaculty` is used.
 - **Private automatically:** *Attendance* and *Exam / Marks* queries are never shown on the class board.
 
-To change courses or teachers, edit `courseFaculty` in `lib/triage.js`.
+To assign a course to a different faculty member, remove the old faculty
+account and create a new one with the course (or register through `/signup`).
+`courseFaculty` in `lib/triage.js` only sets the fallback for unclaimed courses.
 
 ## Group sessions and recordings
 
@@ -379,6 +406,7 @@ by your own Ollama instance and are not sent to an outside AI service.
 | Collection | Contents |
 |---|---|
 | `users` | accounts, hashed passwords, roles, enrolled courses |
+| `courses` | course catalog: title + code, creator, and the faculty owner |
 | `queries` | doubts, answers, appointments, "me too" and session links |
 | `sessions` | group sessions, Meet and recording links |
 | `authSessions` | server-side login sessions |
@@ -419,7 +447,7 @@ All routes need a login unless noted. "Student" and "faculty" mean the role is e
 | **"Invalid faculty invite code"** | The code does not match `FACULTY_INVITE_CODE`. Check for extra spaces and restart after changing it. |
 | **"A faculty account for ... already exists"** | That faculty name is already registered. Log in with the existing account, or remove it with `npm run users -- remove --username <old-username>`. |
 | **A student sees an empty class board** | They only see courses they are enrolled in. Check `--courses` for that account. |
-| **Faculty sees no queries** | The faculty account's `name` must exactly match the name in `courseFaculty` in `lib/triage.js` (for example `Dr. Sharma`). |
+| **Faculty sees no queries** | The faculty account has no courses, or another account already owns those courses. Check with `npm run users -- list`, then remove and recreate the account with the correct `--courses`. |
 | **"Too many failed attempts"** | 5 wrong passwords lock that username for 1 minute. Wait, or restart the server. |
 | **Logged out unexpectedly** | The session expired, `AUTH_SECRET` changed, or the `authSessions` collection was cleared. Log in again. |
 | **Cookies not set in production** | Serve the site over HTTPS. If you must use plain HTTP, set `COOKIE_SECURE=false`. |

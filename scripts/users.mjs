@@ -2,7 +2,7 @@
 // Manage application accounts in MongoDB Atlas.
 //
 //   npm run users -- add --username 101 --password "a-strong-password" \
-//     --role student --name "Asha" --roll 101 --courses CSE310,CSE326
+//     --role student --name "Asha" --roll 101 --courses "INT:305,CSE326"
 //
 //   npm run users -- list
 //   npm run users -- remove --username 101
@@ -58,6 +58,26 @@ function hashPassword(password) {
   return salt + ":" + hash;
 }
 
+function courseKey(course) {
+  if (typeof course === "string") return course.trim().replace(/\s+/g, " ");
+
+  const title = typeof course?.title === "string" ? course.title.trim() : "";
+  const code = typeof course?.code === "string" ? course.code.trim() : "";
+  return [title, code].filter(Boolean).join(" ").replace(/\s+/g, " ");
+}
+
+function courseLabels(user) {
+  if (Array.isArray(user.courseKeys) && user.courseKeys.length > 0) {
+    return user.courseKeys.join(", ");
+  }
+
+  const labels = (user.courses || [])
+    .map((course) => courseKey(course))
+    .filter(Boolean);
+
+  return labels.length > 0 ? labels.join(", ") : "-";
+}
+
 async function connect() {
   if (!process.env.MONGODB_URI) {
     fail("MONGODB_URI is not set. Add it to .env.local or export it before running this script.");
@@ -82,16 +102,25 @@ async function addUser() {
   if (role !== "student" && role !== "faculty") fail("--role must be either student or faculty.");
   if (!name) fail("--name is required.");
 
-  const courses =
-    role === "student"
-      ? (option("courses") || "")
-          .split(",")
-          .map((course) => course.trim())
-          .filter(Boolean)
-      : [];
+  // --courses "INT:305,CSE310" -> [{title:"INT", code:"305"}, {title:"CSE310", code:""}]
+  const courseSpecs = (option("courses") || "")
+    .split(",")
+    .map((spec) => spec.trim())
+    .filter(Boolean)
+    .map((spec) => {
+      const [title, ...rest] = spec.split(":");
+      return { title: (title || "").trim(), code: rest.join(":").trim() };
+    })
+    .filter((course) => course.title || course.code);
 
-  if (role === "student" && courses.length === 0) {
-    fail("Students need --courses (comma separated), for example: --courses CSE310,CSE326");
+  const courses = courseSpecs.map((course) =>
+    [course.title, course.code].filter(Boolean).join(" ")
+  );
+
+  if (courses.length === 0) {
+    fail(
+      'Accounts need --courses (comma separated), for example: --courses "INT:305,CSE310"'
+    );
   }
 
   const user = {
@@ -102,7 +131,15 @@ async function addUser() {
     courses,
   };
 
-  if (role === "student") user.roll = (option("roll") || username).trim();
+  if (role === "student") {
+    user.roll = (option("roll") || username).trim();
+  } else {
+    user.regNo = (option("regno") || username).trim();
+    // Faculty courses are stored as objects with a title and code. The script
+    // accepts the full course key, e.g. --courses "INT 305,CSE310".
+    user.courses = courseSpecs;
+    user.courseKeys = courses;
+  }
 
   const { client, db } = await connect();
   try {
@@ -111,6 +148,42 @@ async function addUser() {
 
     if (existing && !update) {
       fail('User "' + username + '" already exists. Add --update to replace its password and details.');
+    }
+
+    // A course belongs to one faculty member, so queries are never ambiguous.
+    if (role === "faculty") {
+      for (const course of courses) {
+        const owner = await users.findOne({
+          role: "faculty",
+          $or: [{ courses: course }, { courseKeys: course }],
+        });
+        if (owner && owner.username !== username) {
+          fail(
+            course +
+              ' is already assigned to "' +
+              owner.name +
+              '" (' +
+              owner.username +
+              "). Remove that account first if you want to move it."
+          );
+        }
+      }
+
+      const sameRegNo = await users.findOne({ role: "faculty", regNo: user.regNo });
+      if (sameRegNo && sameRegNo.username !== username) {
+        fail(
+          'Registration number "' +
+            user.regNo +
+            '" is already used by "' +
+            sameRegNo.name +
+            '".'
+        );
+      }
+
+      const sameName = await users.findOne({ role: "faculty", name });
+      if (sameName && sameName.username !== username) {
+        fail('A faculty account named "' + name + '" already exists.');
+      }
     }
 
     if (existing) {
@@ -142,8 +215,8 @@ async function listUsers() {
     for (const user of users) {
       const extra =
         user.role === "student"
-          ? "roll " + user.roll + ", courses " + (user.courses || []).join(", ")
-          : "faculty";
+          ? "roll " + user.roll + ", courses " + courseLabels(user)
+          : "reg no " + (user.regNo || "-") + ", courses " + courseLabels(user);
       console.log(user.role.padEnd(8) + user.username.padEnd(16) + user.name + "  (" + extra + ")");
     }
   } finally {
@@ -178,7 +251,7 @@ async function main() {
     console.log(
       [
         "Usage:",
-        "  npm run users -- add --username <name> --password <password> --role <student|faculty> --name <full name> [--roll <roll>] [--courses CSE310,CSE326] [--update]",
+        '  npm run users -- add --username <name> --password <password> --role <student|faculty> --name <full name> --courses "INT:305,CSE310" [--roll <roll>] [--regno <number>] [--update]',
         "  npm run users -- list",
         "  npm run users -- remove --username <name>",
       ].join("\n")

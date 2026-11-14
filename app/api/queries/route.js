@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getQueries, insertQuery } from "@/lib/db";
+import { getQueries, insertQuery, findFacultyByCourse } from "@/lib/db";
 import { triage, isPersonal, sharedKeywords } from "@/lib/triage";
 import { vectorsFor, cosine, THRESHOLD } from "@/lib/embeddings";
 import { getCourses } from "@/lib/users";
@@ -64,6 +64,11 @@ export async function POST(req) {
 
   // Integration: student query -> triage -> saved with category/priority/faculty
   const result = triage(course, question);
+
+  // A faculty account registered for this course takes priority over the
+  // defaults in lib/triage.js, so newly created faculty receive their queries.
+  const faculty = await findFacultyByCourse(course);
+  if (faculty) result.assignedTo = faculty.name;
 
   const query = {
     id: Date.now().toString(),
